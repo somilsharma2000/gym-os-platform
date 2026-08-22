@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GYM OS — Multi-Tenant Gym Management Platform</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+:root{--bg:#0A0A0C;--card:#16161A;--accent:#DC2626;--text:#FAFAFA;--muted:#8E8E93;--border:rgba(255,255,255,0.08);--green:#22C55E;--yellow:#F59E0B;--red:#EF4444;--blue:#6366F1}
+*{box-sizing:border-box}body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;margin:0;min-height:100vh}
+.card{background:var(--card);border:1px solid var(--border);border-radius:16px}
+.btn{padding:8px 16px;border-radius:10px;font-weight:600;font-size:14px;cursor:pointer;border:none;transition:all .15s}
+.btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{opacity:.85}
+.btn-secondary{background:rgba(255,255,255,0.08);color:var(--text)}.btn-secondary:hover{background:rgba(255,255,255,0.12)}
+.btn-sm{padding:6px 12px;font-size:12px}
+input,select,textarea{background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:10px;padding:10px 14px;color:var(--text);font-size:14px;width:100%;font-family:inherit}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+.badge{padding:3px 10px;border-radius:100px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:inline-block}
+.badge-green{background:rgba(34,197,94,.15);color:var(--green)}.badge-yellow{background:rgba(245,158,11,.15);color:var(--yellow)}
+.badge-red{background:rgba(239,68,68,.15);color:var(--red)}.badge-blue{background:rgba(99,102,241,.15);color:var(--blue)}
+.badge-gray{background:rgba(255,255,255,.06);color:var(--muted)}
+.nav-item{padding:10px 16px;border-radius:10px;cursor:pointer;font-size:14px;font-weight:500;color:var(--muted);transition:all .15s;display:flex;align-items:center;gap:10px}
+.nav-item:hover{background:rgba(255,255,255,.04);color:var(--text)}
+.nav-item.active{background:rgba(220,38,38,.12);color:var(--accent)}
+table{width:100%;border-collapse:collapse}th{text-align:left;padding:10px 14px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border)}
+td{padding:12px 14px;border-bottom:1px solid var(--border);font-size:14px}
+tr:hover{background:rgba(255,255,255,.02);cursor:pointer}
+.toast{position:fixed;top:20px;right:20px;padding:14px 20px;border-radius:12px;font-weight:600;z-index:9999;animation:slideIn .3s}
+@keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+.loading{display:inline-block;width:20px;height:20px;border:2px solid rgba(255,255,255,.2);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.stat-card{padding:20px}.stat-num{font-size:32px;font-weight:700;margin-top:8px}.stat-label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:24px;max-width:600px;width:100%;max-height:90vh;overflow-y:auto}
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const API='https://solene-dcb41753.base44.app/functions/gymOsApi';
+let state={role:null,gymId:null,gymName:null,memberToken:null,view:'dashboard',selectedLead:null,selectedProject:null,selectedMember:null,gymColors:{primary:'#DC2626',secondary:'#0A0A0C',accent:'#F59E0B'}};
+
+async function api(action,data={},id=null){
+  try{
+    const res=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,data,id})});
+    return await res.json();
+  }catch(e){return{success:false,message:e.message}}
+}
+
+function toast(msg,type='success'){
+  const colors={success:'var(--green)',error:'var(--red)',info:'var(--blue)'};
+  const t=document.createElement('div');t.className='toast';t.style.background=colors[type];t.style.color='#fff';t.textContent=msg;document.body.appendChild(t);
+  setTimeout(()=>t.remove(),3000);
+}
+
+function badge(text,color){
+  const map={'NEW':'badge-gray','RESEARCHING':'badge-blue','RESEARCHED':'badge-blue','QUALIFIED':'badge-green','NOT QUALIFIED':'badge-red','PROJECT CREATED':'badge-blue','BUILDING':'badge-yellow','QA':'badge-yellow','READY':'badge-green','READY TO CONTACT':'badge-green','CONTACTED':'badge-blue','REPLIED':'badge-blue','INTERESTED':'badge-green','WON':'badge-green','LOST':'badge-red','ACTIVE':'badge-green','EXPIRING SOON':'badge-yellow','EXPIRED':'badge-red','INACTIVE':'badge-gray','FROZEN':'badge-blue','PASS':'badge-green','FAIL':'badge-red','NOT TESTED':'badge-gray','NOT APPLICABLE':'badge-gray','PLANNED':'badge-gray','TESTING':'badge-yellow','BLOCKED':'badge-red','ARCHIVED':'badge-gray'};
+  return `<span class="badge ${map[text]||'badge-gray'}">${text}</span>`;
+}
+
+function el(id){return document.getElementById(id)}
+function val(id){const e=el(id);return e?e.value:''}
+
+// Load state from localStorage
+function loadState(){const s=localStorage.getItem('gymOsState');if(s){state={...state,...JSON.parse(s)}}}
+function saveState(){const{role,gymId,gymName,memberToken}=state;localStorage.setItem('gymOsState',JSON.stringify({role,gymId,gymName,memberToken}))}
+loadState();
+
+// === RENDER ===
+function render(){
+  const app=el('app');
+  if(!state.role){renderLogin();return}
+  if(state.role==='member'){renderMemberPortal();return}
+  if(state.role==='agency'){renderAgencyOS();return}
+  if(state.role==='gym'){if(!state.gymId){renderTenantSelector();return}renderGymOS();return}
+  app.innerHTML='<div class="p-8">Unknown role</div>';
+}
+
+// === LOGIN ===
+function renderLogin(){
+  el('app').innerHTML=`
+  <div class="min-h-screen flex items-center justify-center p-6">
+    <div class="card p-10 max-w-md w-full text-center">
+      <div class="text-4xl font-black mb-2" style="color:var(--accent)">GYM OS</div>
+      <div class="text-sm mb-8" style="color:var(--muted)">Multi-Tenant Gym Management Platform</div>
+      <div class="space-y-3">
+        <button class="btn btn-primary w-full py-4 text-lg" onclick="state.role='agency';saveState();render()">Agency Super Admin</button>
+        <div class="text-xs" style="color:var(--muted)">Full access to leads, research, projects, QA, client conversion</div>
+        <button class="btn btn-secondary w-full py-4 text-lg" onclick="state.role='gym';saveState();render()">Gym Owner</button>
+        <div class="text-xs" style="color:var(--muted)">Manage members, memberships, QR attendance, leads</div>
+        <button class="btn btn-secondary w-full py-4 text-lg" onclick="state.role='member';saveState();render()">Member Portal</button>
+        <div class="text-xs" style="color:var(--muted)">View QR pass, membership, attendance history</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// === TENANT SELECTOR ===
+async function renderTenantSelector(){
+  el('app').innerHTML=`<div class="p-8"><div class="loading"></div> Loading gyms...</div>`;
+  const res=await api('listTenants');
+  if(!res.success){el('app').innerHTML='<div class="p-8 text-red-500">Error loading gyms</div>';return}
+  el('app').innerHTML=`
+  <div class="min-h-screen flex items-center justify-center p-6">
+    <div class="card p-8 max-w-2xl w-full">
+      <div class="text-2xl font-bold mb-6">Select Your Gym</div>
+      <div class="space-y-3">
+        ${res.data.map(t=>`
+          <div class="card p-4 cursor-pointer hover:border-red-500" onclick="selectTenant('${t.id}','${t.gym_name}')">
+            <div class="flex items-center gap-4">
+              <div class="w-12 h-12 rounded-xl flex items-center justify-center text-xl font-bold" style="background:${t.primary_color||'#DC2626'};color:#fff">${t.gym_name[0]}</div>
+              <div><div class="font-bold text-lg">${t.gym_name}</div><div class="text-sm" style="color:var(--muted)">${t.address||'No address'}</div></div>
+              ${badge(t.status||'ACTIVE')}
+            </div>
+          </div>`).join('')}
+      </div>
+      <button class="btn btn-secondary mt-6" onclick="state.role=null;saveState();render()">← Back</button>
+    </div>
+  </div>`;
+}
+
+async function selectTenant(id,name){
+  const res=await api('getTenant',null,id);
+  if(res.success){state.gymColors={primary:res.data.primary_color||'#DC2626',secondary:res.data.secondary_color||'#0A0A0C',accent:res.data.accent_color||'#F59E0B'}}
+  state.gymId=id;state.gymName=name;saveState();render();
+}
+
+// === AGENCY OS ===
+function renderAgencyOS(){
+  const nav=[['dashboard','Dashboard'],['leads','Leads'],['projects','Projects'],['qa','QA'],['clients','Clients']];
+  const icons={dashboard:'📊',leads:'🎯',projects:'🏗️',qa:'✅',clients:'🏢'};
+  el('app').innerHTML=`
+  <div class="flex min-h-screen">
+    <div class="w-60 border-r p-4 flex flex-col" style="border-color:var(--border)">
+      <div class="text-2xl font-black mb-8 px-2" style="color:var(--accent)">GYM OS</div>
+      <div class="text-xs uppercase tracking-wider mb-2 px-2" style="color:var(--muted)">Agency OS</div>
+      ${nav.map(([v,l])=>`<div class="nav-item ${state.view===v?'active':''}" onclick="navTo('${v}')">${icons[v]||'■'} ${l}</div>`).join('')}
+      <div class="mt-auto pt-4 border-t" style="border-color:var(--border)">
+        <button class="btn btn-secondary w-full" onclick="logout()">Logout</button>
+      </div>
+    </div>
+    <div class="flex-1 p-6 overflow-auto" id="content"><div class="loading"></div></div>
+  </div>`;
+  loadAgencyView();
+}
+
+function navTo(v){state.view=v;document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));render();}
+
+async function loadAgencyView(){
+  const c=el('content');if(!c)return;
+  switch(state.view){
+    case'dashboard':return agencyDashboard();
+    case'leads':return agencyLeads();
+    case'projects':return agencyProjects();
+    case'qa':return agencyQA();
+    case'clients':return agencyClients();
+  }
+}
+
+async function agencyDashboard(){
+  el('content').innerHTML='<div class="loading"></div> Loading...';
+  const[leads,projects,tenants]=await Promise.all([api('listLeads'),api('listProjects'),api('listTenants')]);
+  const ld=leads.data||[],pr=projects.data||[],tn=tenants.data||[];
+  const qualified=ld.filter(l=>l.status==='QUALIFIED').length;
+  el('content').innerHTML=`
+    <div class="text-2xl font-bold mb-6">Agency Dashboard</div>
+    <div class="grid grid-cols-4 gap-4 mb-8">
+      <div class="card stat-card"><div class="stat-label">Total Leads</div><div class="stat-num" style="color:var(--blue)">${ld.length}</div></div>
+      <div class="card stat-card"><div class="stat-label">Qualified</div><div class="stat-num" style="color:var(--green)">${qualified}</div></div>
+      <div class="card stat-card"><div class="stat-label">Active Projects</div><div class="stat-num" style="color:var(--yellow)">${pr.length}</div></div>
+      <div class="card stat-card"><div class="stat-label">Clients</div><div class="stat-num" style="color:var(--accent)">${tn.length}</div></div>
+    </div>
+    <div class="card p-6 mb-6">
+      <div class="text-lg font-bold mb-4">Pipeline Overview</div>
+      <div class="space-y-2">
+        ${['NEW','RESEARCHED','QUALIFIED','PROJECT CREATED','WON'].map(s=>{const c=ld.filter(l=>l.status===s).length;return`<div class="flex items-center gap-3"><div class="w-32 text-sm" style="color:var(--muted)">${s}</div><div class="flex-1 h-6 rounded-full overflow-hidden" style="background:rgba(255,255,255,.04)"><div class="h-full rounded-full" style="width:${ld.length?c/ld.length*100:0}%;background:var(--accent)"></div></div><div class="w-8 text-right font-bold">${c}</div></div>`}).join('')}
+      </div>
+    </div>
+    <div class="card p-6">
+      <div class="text-lg font-bold mb-4">Recent Leads</div>
+      <table><thead><tr><th>Business</th><th>City</th><th>Status</th><th>Verified</th></tr></thead>
+      <tbody>${ld.slice(0,10).map(l=>`<tr onclick="viewLead('${l.id}')"><td class="font-semibold">${l.business_name||'-'}</td><td>${l.city||'-'}</td><td>${badge(l.status)}</td><td>${badge(l.verification_status||'UNVERIFIED')}</td></tr>`).join('')}</tbody></table>
+      ${ld.length===0?'<div class="text-center py-8" style="color:var(--muted)">No leads yet. Create one from the Leads tab.</div>':''}
+    </div>`;
+}
+
+async function agencyLeads(){
+  el('content').innerHTML='<div class="loading"></div> Loading...';
+  const res=await api('listLeads');
+  const ld=res.data||[];
+  el('content').innerHTML=`
+    <div class="flex justify-between items-center mb-6">
+      <div class="text-2xl font-bold">Leads</div>
+      <button class="btn btn-primary" onclick="showLeadForm()">+ New Lead</button>
+    </div>
+    <div class="card p-4 mb-4">
+      <input id="leadSearch" placeholder="Search by name or city..." oninput="filterLeads(this.value)" class="!w-auto">
+    </div>
+    <div class="card overflow-hidden">
+      <table><thead><tr><th>Business</th><th>Category</th><th>City</th><th>Status</th><th>Verification</th><th>Decision Maker</th></tr></thead>
+      <tbody id="leadTableBody">${ld.map(l=>leadRow(l)).join('')}</tbody></table>
+      ${ld.length===0?'<div class="text-center py-8" style="color:var(--muted)">No leads yet. Click "New Lead" to create one.</div>':''}
+    </div>`;
+  window._allLeads=ld;
+}
+
+function leadRow(l){return`<tr onclick="viewLead('${l.id}')"><td class="font-semibold">${l.business_name||'-'}</td><td>${l.category||'-'}</td><td>${l.city||'-'}</td><td>${badge(l.status)}</td><td>${badge(l.verification_status||'UNVERIFIED')}</td><td>${l.decision_maker_name||'-'} ${l.decision_maker_role?'<span style="color:var(--muted)">('+l.decision_maker_role+')</span>':''}</td></tr>`}
+
+function filterLeads(q){
+  const f=window._allLeads.filter(l=>!q||l.business_name?.toLowerCase().includes(q.toLowerCase())||l.city?.toLowerCase().includes(q.toLowerCase()));
+  el('leadTableBody').innerHTML=f.map(leadRow).join('');
+}
+
+function showLeadForm(){
+  el('app').insertAdjacentHTML('beforeend',`
+  <div class="modal-bg" id="leadModal" onclick="if(event.target===this)this.remove()">
+    <div class="modal">
+      <div class="text-xl font-bold mb-4">New Lead</div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="text-xs" style="color:var(--muted)">Business Name *</label><input id="lf_name" placeholder="Gym name"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Category</label><input id="lf_cat" placeholder="Boxing/MMA"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Address</label><input id="lf_addr"></div>
+        <div><label class="text-xs" style="color:var(--muted)">City</label><input id="lf_city" value="Manchester"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Phone</label><input id="lf_phone"></div>
+        <div><label class="text-xs" style="color:var(--muted)">WhatsApp</label><input id="lf_wa"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Email</label><input id="lf_email"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Website</label><input id="lf_web"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Instagram</label><input id="lf_ig"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Facebook</label><input id="lf_fb"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Decision Maker</label><input id="lf_dm"></div>
+        <div><label class="text-xs" style="color:var(--muted)">DM Role</label><input id="lf_dmr"></div>
+      </div>
+      <div class="mt-3"><label class="text-xs" style="color:var(--muted)">Notes</label><textarea id="lf_notes" rows="2"></textarea></div>
+      <div class="flex gap-3 mt-4">
+        <button class="btn btn-secondary flex-1" onclick="el('leadModal').remove()">Cancel</button>
+        <button class="btn btn-primary flex-1" onclick="submitLead()">Create Lead</button>
+      </div>
+    </div>
+  </div>`);
+}
+
+async function submitLead(){
+  const data={business_name:val('lf_name'),category:val('lf_cat'),address:val('lf_addr'),city:val('lf_city'),phone_primary:val('lf_phone'),whatsapp:val('lf_wa'),email:val('lf_email'),website:val('lf_web'),instagram:val('lf_ig'),facebook:val('lf_fb'),decision_maker_name:val('lf_dm'),decision_maker_role:val('lf_dmr'),notes:val('lf_notes'),verification_status:'UNVERIFIED',status:'NEW'};
+  if(!data.business_name){toast('Business name required','error');return}
+  el('leadModal').remove();toast('Creating lead...');
+  const res=await api('createLead',data);
+  if(res.success){toast('Lead created!');agencyLeads()}else{toast(res.message||'Error','error')}
+}
+
+async function viewLead(id){
+  el('content').innerHTML='<div class="loading"></div> Loading lead...';
+  const[leadRes,researchRes,dnaRes,projectsRes]=await Promise.all([api('listLeads'),api('getResearch',null,id),api('getBrandDNA',null,id),api('listProjects')]);
+  const lead=leadRes.data?.find(l=>l.id===id);if(!lead){toast('Lead not found','error');return}
+  const research=researchRes.data||[];const dna=dnaRes.data;const projects=projectsRes.data?.filter(p=>p.lead_id===id)||[];
+  el('content').innerHTML=`
+    <div class="flex items-center gap-4 mb-6">
+      <button class="btn btn-secondary btn-sm" onclick="navTo('leads')">← Back</button>
+      <div class="text-2xl font-bold">${lead.business_name}</div>
+      ${badge(lead.status)}
+    </div>
+    <div class="grid grid-cols-3 gap-4 mb-6">
+      <div class="card p-5">
+        <div class="text-sm font-bold mb-3">Contact Info</div>
+        <div class="space-y-2 text-sm">
+          <div><span style="color:var(--muted)">Phone:</span> ${lead.phone_primary||'-'}</div>
+          <div><span style="color:var(--muted)">WhatsApp:</span> ${lead.whatsapp||'-'}</div>
+          <div><span style="color:var(--muted)">Email:</span> ${lead.email||'-'}</div>
+          <div><span style="color:var(--muted)">Website:</span> ${lead.website?`<a href="${lead.website}" target="_blank" style="color:var(--blue)">${lead.website}</a>`:'-'}</div>
+          <div><span style="color:var(--muted)">IG:</span> ${lead.instagram||'-'}</div>
+          <div><span style="color:var(--muted)">FB:</span> ${lead.facebook||'-'}</div>
+        </div>
+      </div>
+      <div class="card p-5">
+        <div class="text-sm font-bold mb-3">Business Info</div>
+        <div class="space-y-2 text-sm">
+          <div><span style="color:var(--muted)">Category:</span> ${lead.category||'-'}</div>
+          <div><span style="color:var(--muted)">Address:</span> ${lead.address||'-'}</div>
+          <div><span style="color:var(--muted)">City:</span> ${lead.city||'-'}</div>
+          <div><span style="color:var(--muted)">Decision Maker:</span> ${lead.decision_maker_name||'-'} ${lead.decision_maker_role?'('+lead.decision_maker_role+')':''}</div>
+          <div><span style="color:var(--muted)">Source:</span> ${lead.contact_source||'-'}</div>
+          <div><span style="color:var(--muted)">Verification:</span> ${badge(lead.verification_status||'UNVERIFIED')}</div>
+        </div>
+      </div>
+      <div class="card p-5">
+        <div class="text-sm font-bold mb-3">Status Update</div>
+        <select onchange="updateLeadStatus('${id}',this.value)" class="mb-3">
+          ${['NEW','RESEARCHING','RESEARCHED','QUALIFIED','NOT QUALIFIED','PROJECT CREATED','BUILDING','QA','READY TO CONTACT','CONTACTED','REPLIED','INTERESTED','DEMO BOOKED','PROPOSAL','NEGOTIATION','WON','LOST','DO NOT CONTACT'].map(s=>`<option ${lead.status===s?'selected':''}>${s}</option>`).join('')}
+        </select>
+        <div class="text-xs" style="color:var(--muted)">Notes: ${lead.notes||'None'}</div>
+      </div>
+    </div>
+    <!-- Research Section -->
+    <div class="card p-6 mb-6">
+      <div class="flex justify-between items-center mb-4"><div class="text-lg font-bold">Research Records</div><button class="btn btn-primary btn-sm" onclick="showResearchForm('${id}')">+ Add Research</button></div>
+      ${research.length===0?'<div class="text-center py-4" style="color:var(--muted)">No research yet</div>':research.map(r=>`
+        <div class="card p-4 mb-3" style="background:rgba(255,255,255,.02)">
+          <div class="flex justify-between items-start mb-2">
+            <div class="font-semibold">${r.business_summary||'Research'}</div>
+            <div class="flex gap-2"><span class="badge badge-blue">Opp: ${r.opportunity_score||'-'}/10</span><span class="badge badge-green">Conf: ${r.confidence_score||'-'}/100</span></div>
+          </div>
+          <div class="grid grid-cols-2 gap-2 text-sm">
+            <div><span style="color:var(--muted)">Target:</span> ${r.target_customer||'-'}</div>
+            <div><span style="color:var(--muted)">Digital Maturity:</span> ${r.digital_maturity||'-'}</div>
+            <div><span style="color:var(--muted)">Services:</span> ${r.services||'-'}</div>
+            <div><span style="color:var(--muted)">Evidence:</span> ${badge(r.evidence_level||'UNKNOWN')}</div>
+          </div>
+          ${r.observed_opportunities?`<div class="mt-2 text-sm"><span style="color:var(--muted)">Opportunities:</span> ${r.observed_opportunities}</div>`:''}
+          ${r.research_notes?`<div class="mt-2 text-sm"><span style="color:var(--muted)">Notes:</span> ${r.research_notes}</div>`:''}
+        </div>`).join('')}
+    </div>
+    <!-- Brand DNA Section -->
+    <div class="card p-6 mb-6">
+      <div class="flex justify-between items-center mb-4"><div class="text-lg font-bold">Brand DNA</div><button class="btn btn-primary btn-sm" onclick="showDnaForm('${id}')">${dna?'Edit':'+ Create'}</button></div>
+      ${dna?`<div class="grid grid-cols-3 gap-4">
+        <div><div class="text-xs" style="color:var(--muted)">Personality</div><div class="text-sm font-medium">${dna.brand_personality||'-'}</div></div>
+        <div><div class="text-xs" style="color:var(--muted)">Target Audience</div><div class="text-sm font-medium">${dna.target_audience||'-'}</div></div>
+        <div><div class="text-xs" style="color:var(--muted)">Primary Emotion</div><div class="text-sm font-medium">${dna.primary_emotion||'-'}</div></div>
+        <div><div class="text-xs" style="color:var(--muted)">Typography</div><div class="text-sm font-medium">${dna.typography_direction||'-'}</div></div>
+        <div><div class="text-xs" style="color:var(--muted)">Visual Style</div><div class="text-sm font-medium">${dna.visual_style||'-'}</div></div>
+        <div><div class="text-xs" style="color:var(--muted)">Hero Concept</div><div class="text-sm font-medium">${dna.hero_concept||'-'}</div></div>
+        <div class="flex gap-3 items-center"><div class="text-xs" style="color:var(--muted)">Colors:</div><div class="w-8 h-8 rounded-full border" style="background:${dna.primary_color||'#000'}"></div><div class="w-8 h-8 rounded-full border" style="background:${dna.secondary_color||'#000'}"></div><div class="w-8 h-8 rounded-full border" style="background:${dna.accent_color||'#000'}"></div></div>
+      </div>`:'<div class="text-center py-4" style="color:var(--muted)">No Brand DNA yet</div>'}
+    </div>
+    <!-- Qualification -->
+    <div class="card p-6 mb-6">
+      <div class="text-lg font-bold mb-4">Qualification Scoring</div>
+      <div class="grid grid-cols-2 gap-3" id="qualChecks">
+        ${[['active_business','Active business'],['verified_contact','Verified public contact'],['decision_maker','Decision maker identified'],['business_size','Business size indicators'],['multiple_branches','Multiple branches'],['digital_opportunity','Digital opportunity'],['website_weakness','Website weakness'],['lead_opportunity','Lead/trial opportunity'],['system_opportunity','Operational system opportunity'],['purchasing_power','Purchasing potential']].map(([k,l])=>`<label class="flex items-center gap-3 cursor-pointer"><input type="checkbox" id="q_${k}" class="!w-5 !h-5"><span class="text-sm">${l}</span></label>`).join('')}
+      </div>
+      <button class="btn btn-primary mt-4" onclick="qualifyLead('${id}')">Calculate & Qualify</button>
+    </div>
+    <!-- Projects -->
+    <div class="card p-6">
+      <div class="flex justify-between items-center mb-4"><div class="text-lg font-bold">Projects</div><button class="btn btn-primary btn-sm" onclick="createProject('${id}')">+ Create Project</button></div>
+      ${projects.length===0?'<div class="text-center py-4" style="color:var(--muted)">No projects yet</div>':projects.map(p=>`
+        <div class="card p-4 mb-3" style="background:rgba(255,255,255,.02)" onclick="viewProject('${p.id}')">
+          <div class="flex justify-between items-center">
+            <div class="font-semibold">${p.project_id||'Project'}</div>
+            <div class="flex gap-2">${badge(p.status)}${badge(p.qa_status||'NOT STARTED')}</div>
+          </div>
+          <div class="text-sm mt-2" style="color:var(--muted)">${p.build_notes||'No notes'}</div>
+          ${p.preview_url?`<a href="${p.preview_url}" target="_blank" class="text-sm" style="color:var(--blue)">Preview →</a>`:''}
+        </div>`).join('')}
+    </div>`;
+  // Pre-check qualification boxes if already qualified
+  if(lead.status==='QUALIFIED'||lead.status==='WON'){['active_business','verified_contact','decision_maker','business_size','digital_opportunity','website_weakness','lead_opportunity','system_opportunity','purchasing_power'].forEach(k=>{const c=el('q_'+k);if(c)c.checked=true})}
+}
+
+async function updateLeadStatus(id,status){
+  const res=await api('updateLead',{status},id);
+  if(res.success)toast('Status updated to '+status);else toast('Error','error');
+}
+
+function showResearchForm(leadId){
+  el('app').insertAdjacentHTML('beforeend',`
+  <div class="modal-bg" id="researchModal" onclick="if(event.target===this)this.remove()">
+    <div class="modal">
+      <div class="text-xl font-bold mb-4">Add Research Record</div>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="col-span-2"><label class="text-xs" style="color:var(--muted)">Business Summary</label><textarea id="rf_summary" rows="2"></textarea></div>
+        <div><label class="text-xs" style="color:var(--muted)">Target Customer</label><input id="rf_target"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Market Positioning</label><input id="rf_pos"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Services</label><input id="rf_services"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Digital Maturity</label><select id="rf_dm"><option>NONE</option><option>BASIC</option><option>INTERMEDIATE</option><option>ADVANCED</option></select></div>
+        <div><label class="text-xs" style="color:var(--muted)">Opportunity Score (1-10)</label><input id="rf_opp" type="number" min="1" max="10" value="5"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Confidence Score (1-100)</label><input id="rf_conf" type="number" min="1" max="100" value="50"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Evidence Level</label><select id="rf_ev"><option>VERIFIED</option><option>PUBLICLY LISTED</option><option>OBSERVED</option><option>INFERRED</option><option>UNKNOWN</option></select></div>
+        <div class="col-span-2"><label class="text-xs" style="color:var(--muted)">Existing Website Analysis</label><textarea id="rf_web" rows="2"></textarea></div>
+        <div class="col-span-2"><label class="text-xs" style="color:var(--muted)">Social Media Analysis</label><input id="rf_social"></div>
+        <div class="col-span-2"><label class="text-xs" style="color:var(--muted)">Observed Opportunities</label><textarea id="rf_obs" rows="2"></textarea></div>
+        <div class="col-span-2"><label class="text-xs" style="color:var(--muted)">Inferred Opportunities</label><textarea id="rf_inf" rows="2"></textarea></div>
+        <div class="col-span-2"><label class="text-xs" style="color:var(--muted)">Unknowns</label><input id="rf_unk"></div>
+        <div class="col-span-2"><label class="text-xs" style="color:var(--muted)">Research Notes</label><textarea id="rf_notes" rows="2"></textarea></div>
+      </div>
+      <div class="flex gap-3 mt-4">
+        <button class="btn btn-secondary flex-1" onclick="el('researchModal').remove()">Cancel</button>
+        <button class="btn btn-primary flex-1" onclick="submitResearch('${leadId}')">Save Research</button>
+      </div>
+    </div>
+  </div>`);
+}
+
+async function submitResearch(leadId){
+  const data={lead_id:leadId,business_summary:val('rf_summary'),target_customer:val('rf_target'),market_positioning:val('rf_pos'),services:val('rf_services'),digital_maturity:val('rf_dm'),opportunity_score:parseInt(val('rf_opp'))||5,confidence_score:parseInt(val('rf_conf'))||50,evidence_level:val('rf_ev'),existing_website_analysis:val('rf_web'),social_media_analysis:val('rf_social'),observed_opportunities:val('rf_obs'),inferred_opportunities:val('rf_inf'),unknowns:val('rf_unk'),research_notes:val('rf_notes')};
+  el('researchModal').remove();toast('Saving research...');
+  const res=await api('createResearch',data);
+  if(res.success){toast('Research saved!');viewLead(leadId)}else{toast(res.message||'Error','error')}
+}
+
+function showDnaForm(leadId){
+  const d=window._dna||{};
+  el('app').insertAdjacentHTML('beforeend',`
+  <div class="modal-bg" id="dnaModal" onclick="if(event.target===this)this.remove()">
+    <div class="modal">
+      <div class="text-xl font-bold mb-4">Brand DNA Profile</div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="text-xs" style="color:var(--muted)">Brand Personality</label><input id="df_bp" value="${d.brand_personality||''}"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Target Audience</label><input id="df_ta" value="${d.target_audience||''}"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Positioning</label><input id="df_pos" value="${d.positioning||''}"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Primary Emotion</label><input id="df_pe" value="${d.primary_emotion||''}"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Primary Color</label><input id="df_pc" type="color" value="${d.primary_color||'#DC2626'}" class="!h-10"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Secondary Color</label><input id="df_sc" type="color" value="${d.secondary_color||'#0A0A0C'}" class="!h-10"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Accent Color</label><input id="df_ac" type="color" value="${d.accent_color||'#F59E0B'}" class="!h-10"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Typography Direction</label><input id="df_typo" value="${d.typography_direction||''}"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Background Strategy</label><input id="df_bg" value="${d.background_strategy||''}"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Visual Style</label><input id="df_vs" value="${d.visual_style||''}"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Image Style</label><input id="df_is" value="${d.image_style||''}"></div>
+        <div><label class="text-xs" style="color:var(--muted)">UI Style</label><input id="df_ui" value="${d.ui_style||''}"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Hero Concept</label><input id="df_hero" value="${d.hero_concept||''}"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Mobile Design Direction</label><input id="df_mob" value="${d.mobile_design_direction||''}"></div>
+      </div>
+      <div class="flex gap-3 mt-4">
+        <button class="btn btn-secondary flex-1" onclick="el('dnaModal').remove()">Cancel</button>
+        <button class="btn btn-primary flex-1" onclick="submitDna('${leadId}')">Save Brand DNA</button>
+      </div>
+    </div>
+  </div>`);
+}
+
+async function submitDna(leadId){
+  const data={lead_id:leadId,brand_personality:val('df_bp'),target_audience:val('df_ta'),positioning:val('df_pos'),primary_emotion:val('df_pe'),primary_color:val('df_pc'),secondary_color:val('df_sc'),accent_color:val('df_ac'),typography_direction:val('df_typo'),background_strategy:val('df_bg'),visual_style:val('df_vs'),image_style:val('df_is'),ui_style:val('df_ui'),hero_concept:val('df_hero'),mobile_design_direction:val('df_mob')};
+  el('dnaModal').remove();toast('Saving Brand DNA...');
+  const res=await api('saveBrandDNA',data);
+  if(res.success){toast('Brand DNA saved!');viewLead(leadId)}else{toast(res.message||'Error','error')}
+}
+
+async function qualifyLead(id){
+  const checks=['active_business','verified_contact','decision_maker','business_size','multiple_branches','digital_opportunity','website_weakness','lead_opportunity','system_opportunity','purchasing_power'];
+  const data={};checks.forEach(k=>data[k]=el('q_'+k)?.checked||false);data.confidence_score=80;
+  toast('Calculating scores...');
+  const res=await api('qualifyLead',data,id);
+  if(res.success){toast(`Qualified! Opp: ${res.data.opportunityScore}/10, Priority: ${res.data.salesPriority}/100`);viewLead(id)}else{toast(res.message||'Error','error')}
+}
+
+async function createProject(leadId){
+  toast('Creating project...');
+  const res=await api('createProject',{lead_id:leadId,build_notes:'Website + Dashboard + Portal system',preview_url:''});
+  if(res.success){toast('Project created!');viewLead(leadId)}else{toast(res.message||'Error','error')}
+}
+
+async function agencyProjects(){
+  el('content').innerHTML='<div class="loading"></div> Loading...';
+  const res=await api('listProjects');
+  const pr=res.data||[];
+  el('content').innerHTML=`
+    <div class="text-2xl font-bold mb-6">Projects</div>
+    <div class="card overflow-hidden">
+      <table><thead><tr><th>Project ID</th><th>Status</th><th>Website</th><th>System</th><th>QA</th><th>Preview</th></tr></thead>
+      <tbody>${pr.map(p=>`<tr onclick="viewProject('${p.id}')"><td class="font-mono text-sm">${p.project_id||'-'}</td><td>${badge(p.status)}</td><td>${badge(p.website_status||'NOT STARTED')}</td><td>${badge(p.system_status||'NOT STARTED')}</td><td>${badge(p.qa_status||'NOT STARTED')}</td><td>${p.preview_url?'<a href="'+p.preview_url+'" target="_blank" style="color:var(--blue)">View →</a>':'-'}</td></tr>`).join('')}</tbody></table>
+      ${pr.length===0?'<div class="text-center py-8" style="color:var(--muted)">No projects yet</div>':''}
+    </div>`;
+}
+
+async function viewProject(id){
+  el('content').innerHTML='<div class="loading"></div> Loading project...';
+  const[projRes,qaRes]=await Promise.all([api('listProjects'),api('getQA',null,id)]);
+  const proj=projRes.data?.find(p=>p.id===id);if(!proj){toast('Not found','error');return}
+  const qaItems=qaRes.data||[];
+  el('content').innerHTML=`
+    <div class="flex items-center gap-4 mb-6">
+      <button class="btn btn-secondary btn-sm" onclick="navTo('projects')">← Back</button>
+      <div class="text-2xl font-bold">${proj.project_id}</div>
+      ${badge(proj.status)}
+    </div>
+    <div class="grid grid-cols-3 gap-4 mb-6">
+      <div class="card p-5"><div class="text-sm font-bold mb-2">Website Status</div>${badge(proj.website_status||'NOT STARTED')}</div>
+      <div class="card p-5"><div class="text-sm font-bold mb-2">System Status</div>${badge(proj.system_status||'NOT STARTED')}</div>
+      <div class="card p-5"><div class="text-sm font-bold mb-2">QA Status</div>${badge(proj.qa_status||'NOT STARTED')}</div>
+    </div>
+    <div class="card p-5 mb-6">
+      <div class="text-sm font-bold mb-2">Project Details</div>
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        <div><span style="color:var(--muted)">Preview URL:</span> ${proj.preview_url?'<a href="'+proj.preview_url+'" target="_blank" style="color:var(--blue)">'+proj.preview_url+'</a>':'Not set'}</div>
+        <div><span style="color:var(--muted)">Lead ID:</span> ${proj.lead_id||'-'}</div>
+        <div><span style="color:var(--muted)">Build Notes:</span> ${proj.build_notes||'-'}</div>
+        <div><span style="color:var(--muted)">Known Limitations:</span> ${proj.known_limitations||'None'}</div>
+      </div>
+    </div>
+    <div class="card p-6">
+      <div class="flex justify-between items-center mb-4"><div class="text-lg font-bold">QA Checklist</div><button class="btn btn-primary btn-sm" onclick="showQAForm('${id}')">+ Add QA Item</button></div>
+      ${qaItems.length===0?'<div class="text-center py-4" style="color:var(--muted)">No QA items yet</div>':`
+      <table><thead><tr><th>Category</th><th>Test</th><th>Result</th><th>Notes</th><th>Update</th></tr></thead>
+      <tbody>${qaItems.map(q=>`<tr><td>${q.category}</td><td>${q.test_name}</td><td>${badge(q.result)}</td><td class="text-sm">${q.notes||'-'}</td><td><select onchange="updateQA('${q.id}','${id}',this.value)" class="!w-auto !py-1 text-xs"><option ${q.result==='PASS'?'selected':''}>PASS</option><option ${q.result==='FAIL'?'selected':''}>FAIL</option><option ${q.result==='NOT TESTED'?'selected':''}>NOT TESTED</option><option ${q.result==='NOT APPLICABLE'?'selected':''}>NOT APPLICABLE</option></select></td></tr>`).join('')}</tbody></table>`}
+    </div>`;
+}
+
+function showQAForm(projId){
+  el('app').insertAdjacentHTML('beforeend',`
+  <div class="modal-bg" id="qaModal" onclick="if(event.target===this)this.remove()">
+    <div class="modal">
+      <div class="text-xl font-bold mb-4">Add QA Item</div>
+      <div class="space-y-3">
+        <div><label class="text-xs" style="color:var(--muted)">Category</label><select id="qa_cat">${['Brand','Website','Mobile','Authentication','Member Management','Memberships','QR','Attendance','Lead Forms','Data Persistence','Authorization','Performance','Known Limitations'].map(c=>`<option>${c}</option>`).join('')}</select></div>
+        <div><label class="text-xs" style="color:var(--muted)">Test Name</label><input id="qa_name" placeholder="e.g. Brand colors match gym identity"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Result</label><select id="qa_res"><option>NOT TESTED</option><option>PASS</option><option>FAIL</option><option>NOT APPLICABLE</option></select></div>
+        <div><label class="text-xs" style="color:var(--muted)">Notes</label><textarea id="qa_notes" rows="2"></textarea></div>
+      </div>
+      <div class="flex gap-3 mt-4">
+        <button class="btn btn-secondary flex-1" onclick="el('qaModal').remove()">Cancel</button>
+        <button class="btn btn-primary flex-1" onclick="submitQA('${projId}')">Add Item</button>
+      </div>
+    </div>
+  </div>`);
+}
+
+async function submitQA(projId){
+  const data={project_id:projId,category:val('qa_cat'),test_name:val('qa_name'),result:val('qa_res'),notes:val('qa_notes')};
+  if(!data.test_name){toast('Test name required','error');return}
+  el('qaModal').remove();toast('Adding QA item...');
+  const res=await api('createQAItem',data);
+  if(res.success){toast('QA item added!');viewProject(projId)}else{toast(res.message||'Error','error')}
+}
+
+async function updateQA(qaId,projId,result){
+  toast('Updating...');
+  await api('updateQAItem',{result,project_id:projId},qaId);
+  toast('QA updated');
+  viewProject(projId);
+}
+
+async function agencyClients(){
+  el('content').innerHTML='<div class="loading"></div> Loading...';
+  const[tenantsRes,leadsRes]=await Promise.all([api('listTenants'),api('listLeads')]);
+  const tenants=tenantsRes.data||[];const qualifiedLeads=leadsRes.data?.filter(l=>l.status==='QUALIFIED'||l.status==='WON')||[];
+  el('content').innerHTML=`
+    <div class="flex justify-between items-center mb-6">
+      <div class="text-2xl font-bold">Clients (Gym Tenants)</div>
+      <button class="btn btn-primary" onclick="showConvertForm()">+ Convert Lead to Client</button>
+    </div>
+    <div class="grid grid-cols-2 gap-4 mb-6">
+      ${tenants.map(t=>`<div class="card p-5 cursor-pointer hover:border-red-500" onclick="viewTenant('${t.id}')">
+        <div class="flex items-center gap-4">
+          <div class="w-14 h-14 rounded-xl flex items-center justify-center text-2xl font-bold" style="background:${t.primary_color||'#DC2626'};color:#fff">${t.gym_name[0]}</div>
+          <div><div class="font-bold text-lg">${t.gym_name}</div><div class="text-sm" style="color:var(--muted)">${t.address||'-'}</div><div class="flex gap-2 mt-1">${badge(t.status||'ACTIVE')}<span class="badge badge-gray">Owner: ${t.email||'-'}</span></div></div>
+        </div>
+      </div>`).join('')}
+    </div>
+    ${tenants.length===0?'<div class="text-center py-8" style="color:var(--muted)">No clients yet. Convert a qualified lead to create a gym tenant.</div>':''}`;
+  window._qualifiedLeads=qualifiedLeads;
+}
+
+function showConvertForm(){
+  const ql=window._qualifiedLeads||[];
+  el('app').insertAdjacentHTML('beforeend',`
+  <div class="modal-bg" id="convModal" onclick="if(event.target===this)this.remove()">
+    <div class="modal">
+      <div class="text-xl font-bold mb-4">Convert Lead to Client</div>
+      ${ql.length===0?'<div class="text-center py-4" style="color:var(--muted)">No qualified leads available. Qualify a lead first.</div>':`
+      <div class="space-y-3">
+        <div><label class="text-xs" style="color:var(--muted)">Select Qualified Lead</label><select id="cf_lead">${ql.map(l=>`<option value="${l.id}" data-name="${l.business_name}" data-email="${l.email||''}" data-phone="${l.phone_primary||''}">${l.business_name}</option>`).join('')}</select></div>
+        <div><label class="text-xs" style="color:var(--muted)">Gym Name</label><input id="cf_name"></div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="text-xs" style="color:var(--muted)">Owner Name</label><input id="cf_owner"></div>
+          <div><label class="text-xs" style="color:var(--muted)">Owner Email</label><input id="cf_oemail"></div>
+          <div><label class="text-xs" style="color:var(--muted)">Owner Phone</label><input id="cf_ophone"></div>
+          <div><label class="text-xs" style="color:var(--muted)">Primary Color</label><input id="cf_pc" type="color" value="#DC2626" class="!h-10"></div>
+          <div><label class="text-xs" style="color:var(--muted)">Secondary Color</label><input id="cf_sc" type="color" value="#0A0A0C" class="!h-10"></div>
+          <div><label class="text-xs" style="color:var(--muted)">Accent Color</label><input id="cf_ac" type="color" value="#F59E0B" class="!h-10"></div>
+          <div><label class="text-xs" style="color:var(--muted)">Phone</label><input id="cf_phone"></div>
+          <div><label class="text-xs" style="color:var(--muted)">Email</label><input id="cf_email"></div>
+        </div>
+        <div><label class="text-xs" style="color:var(--muted)">Address</label><input id="cf_addr"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Opening Hours</label><input id="cf_hours" value="Mon-Fri 6am-10pm, Sat-Sun 8am-8pm"></div>
+      </div>`}
+      <div class="flex gap-3 mt-4">
+        <button class="btn btn-secondary flex-1" onclick="el('convModal').remove()">${ql.length===0?'Close':'Cancel'}</button>
+        ${ql.length>0?`<button class="btn btn-primary flex-1" onclick="submitConvert()">Convert to Client</button>`:''}
+      </div>
+    </div>
+  </div>`);
+  if(ql.length>0){const opt=el('cf_lead').querySelector('option');if(opt){el('cf_name').value=opt.dataset.name;el('cf_oemail').value=opt.dataset.email;el('cf_ophone').value=opt.dataset.phone;el('cf_phone').value=opt.dataset.phone;el('cf_email').value=opt.dataset.email;
+    el('cf_lead').onchange=function(){const o=this.options[this.selectedIndex];el('cf_name').value=o.dataset.name;el('cf_oemail').value=o.dataset.email;el('cf_ophone').value=o.dataset.phone;el('cf_phone').value=o.dataset.phone;el('cf_email').value=o.dataset.email}}}
+}
+
+async function submitConvert(){
+  const data={lead_id:val('cf_lead'),gym_name:val('cf_name'),owner_name:val('cf_owner'),owner_email:val('cf_oemail'),owner_phone:val('cf_ophone'),primary_color:val('cf_pc'),secondary_color:val('cf_sc'),accent_color:val('cf_ac'),address:val('cf_addr'),phone:val('cf_phone'),email:val('cf_email'),opening_hours:val('cf_hours')};
+  if(!data.gym_name){toast('Gym name required','error');return}
+  el('convModal').remove();toast('Converting to client...');
+  const res=await api('convertToClient',data);
+  if(res.success){toast('Client created! Gym tenant is live.');agencyClients()}else{toast(res.message||'Error','error')}
+}
+
+async function viewTenant(id){
+  el('content').innerHTML='<div class="loading"></div> Loading tenant...';
+  const t=await api('getTenant',null,id);
+  if(!t.success){toast('Error','error');return}
+  const d=t.data;
+  el('content').innerHTML=`
+    <div class="flex items-center gap-4 mb-6">
+      <button class="btn btn-secondary btn-sm" onclick="navTo('clients')">← Back</button>
+      <div class="text-2xl font-bold">${d.gym_name}</div>
+      ${badge(d.status||'ACTIVE')}
+    </div>
+    <div class="grid grid-cols-2 gap-4">
+      <div class="card p-5"><div class="text-sm font-bold mb-3">Branding</div>
+        <div class="flex gap-3 mb-3"><div class="w-12 h-12 rounded-xl" style="background:${d.primary_color}"></div><div class="w-12 h-12 rounded-xl" style="background:${d.secondary_color}"></div><div class="w-12 h-12 rounded-xl" style="background:${d.accent_color}"></div></div>
+        <div class="text-sm space-y-1"><div><span style="color:var(--muted)">Primary:</span> ${d.primary_color}</div><div><span style="color:var(--muted)">Secondary:</span> ${d.secondary_color}</div><div><span style="color:var(--muted)">Accent:</span> ${d.accent_color}</div></div>
+      </div>
+      <div class="card p-5"><div class="text-sm font-bold mb-3">Contact Info</div>
+        <div class="text-sm space-y-1"><div><span style="color:var(--muted)">Phone:</span> ${d.phone||'-'}</div><div><span style="color:var(--muted)">Email:</span> ${d.email||'-'}</div><div><span style="color:var(--muted)">Address:</span> ${d.address||'-'}</div><div><span style="color:var(--muted)">Hours:</span> ${d.opening_hours||'-'}</div></div>
+      </div>
+    </div>`;
+}
+
+// === GYM OS ===
+function renderGymOS(){
+  const pc=state.gymColors.primary;
+  const nav=[['dashboard','Dashboard'],['members','Members'],['memberships','Memberships'],['scanner','QR Scanner'],['attendance','Attendance'],['leads','Leads'],['staff','Staff'],['audit','Audit Log'],['settings','Settings']];
+  const icons={dashboard:'📊',members:'👥',memberships:'🎫',scanner:'📷',attendance:'✅',leads:'🎯',staff:'👔',audit:'📜',settings:'⚙️'};
+  el('app').innerHTML=`
+  <div class="flex min-h-screen">
+    <div class="w-60 border-r p-4 flex flex-col" style="border-color:var(--border)">
+      <div class="text-2xl font-black mb-2 px-2" style="color:${pc}">${state.gymName||'GYM OS'}</div>
+      <div class="text-xs uppercase tracking-wider mb-4 px-2" style="color:var(--muted)">Gym Management</div>
+      ${nav.map(([v,l])=>`<div class="nav-item ${state.view===v?'active':''}" onclick="gymNav('${v}')" style="${state.view===v?'background:'+pc+'20;color:'+pc:''}">${icons[v]||'■'} ${l}</div>`).join('')}
+      <div class="mt-auto pt-4 border-t" style="border-color:var(--border)">
+        <button class="btn btn-secondary w-full mb-2" onclick="state.gymId=null;saveState();render()">Switch Gym</button>
+        <button class="btn btn-secondary w-full" onclick="logout()">Logout</button>
+      </div>
+    </div>
+    <div class="flex-1 p-6 overflow-auto" id="content"><div class="loading"></div></div>
+  </div>`;
+  loadGymView();
+}
+
+function gymNav(v){state.view=v;render();}
+
+async function loadGymView(){
+  const c=el('content');if(!c)return;const gid=state.gymId;
+  switch(state.view){
+    case'dashboard':return gymDashboard(gid);
+    case'members':return gymMembers(gid);
+    case'memberships':return gymMemberships(gid);
+    case'scanner':return gymScanner(gid);
+    case'attendance':return gymAttendance(gid);
+    case'leads':return gymLeads(gid);
+    case'staff':return gymStaff(gid);
+    case'audit':return gymAudit(gid);
+    case'settings':return gymSettings(gid);
+  }
+}
+
+async function gymDashboard(gid){
+  el('content').innerHTML='<div class="loading"></div> Loading...';
+  const res=await api('getDashboard',{gym_id:gid});
+  if(!res.success){el('content').innerHTML='<div class="p-4 text-red-500">Error loading dashboard</div>';return}
+  const d=res.data;
+  el('content').innerHTML=`
+    <div class="text-2xl font-bold mb-6">Dashboard</div>
+    <div class="grid grid-cols-4 gap-4 mb-6">
+      <div class="card stat-card"><div class="stat-label">Active Members</div><div class="stat-num" style="color:var(--green)">${d.activeMembers}</div></div>
+      <div class="card stat-card"><div class="stat-label">Today's Check-ins</div><div class="stat-num" style="color:var(--accent)">${d.todayCheckins}</div></div>
+      <div class="card stat-card"><div class="stat-label">New Leads</div><div class="stat-num" style="color:var(--blue)">${d.newLeads}</div></div>
+      <div class="card stat-card"><div class="stat-label">Trial Conversion</div><div class="stat-num" style="color:var(--yellow)">${d.trialConversionRate}%</div></div>
+      <div class="card stat-card"><div class="stat-label">Total Members</div><div class="stat-num">${d.totalMembers}</div></div>
+      <div class="card stat-card"><div class="stat-label">Expiring Soon</div><div class="stat-num" style="color:var(--yellow)">${d.expiringMemberships}</div></div>
+      <div class="card stat-card"><div class="stat-label">Expired</div><div class="stat-num" style="color:var(--red)">${d.expiredMemberships}</div></div>
+      <div class="card stat-card"><div class="stat-label">Inactive</div><div class="stat-num" style="color:var(--muted)">${d.inactiveMembers}</div></div>
+    </div>
+    <div class="card p-6">
+      <div class="text-lg font-bold mb-4">Recent Attendance</div>
+      ${d.recentAttendance?.length>0?`<table><thead><tr><th>Member</th><th>Time</th><th>Result</th><th>Scanner</th></tr></thead><tbody>${d.recentAttendance.map(a=>`<tr><td>${a.member_name||'Unknown'}</td><td class="text-sm">${new Date(a.timestamp).toLocaleString('en-GB')}</td><td>${badge(a.result)}</td><td class="text-sm">${a.scanner_source||'-'}</td></tr>`).join('')}</tbody></table>`:'<div class="text-center py-4" style="color:var(--muted)">No check-ins yet</div>'}
+    </div>`;
+}
+
+async function gymMembers(gid){
+  el('content').innerHTML='<div class="loading"></div> Loading...';
+  const res=await api('listMembers',null,gid);
+  const m=res.data||[];
+  el('content').innerHTML=`
+    <div class="flex justify-between items-center mb-6">
+      <div class="text-2xl font-bold">Members</div>
+      <button class="btn btn-primary" onclick="showMemberForm()">+ Add Member</button>
+    </div>
+    <div class="card p-4 mb-4"><input id="memberSearch" placeholder="Search by name..." oninput="filterMembers(this.value)" class="!w-auto"></div>
+    <div class="card overflow-hidden">
+      <table><thead><tr><th>Name</th><th>Member ID</th><th>Status</th><th>Phone</th><th>Email</th><th>Joined</th><th>QR</th></tr></thead>
+      <tbody id="memberTBody">${m.map(r=>memberRow(r)).join('')}</tbody></table>
+      ${m.length===0?'<div class="text-center py-8" style="color:var(--muted)">No members yet</div>':''}
+    </div>`;
+  window._allMembers=m;
+}
+
+function memberRow(r){return`<tr onclick="viewMember('${r.id}')"><td class="font-semibold">${r.name||'-'}</td><td class="font-mono text-xs">${r.member_id||'-'}</td><td>${badge(r.status)}</td><td>${r.phone||'-'}</td><td>${r.email||'-'}</td><td class="text-sm">${r.joining_date||'-'}</td><td>${r.qr_active?'<span class="badge badge-green">Active</span>':'<span class="badge badge-red">Revoked</span>'}</td></tr>`}
+
+function filterMembers(q){const f=window._allMembers.filter(r=>!q||r.name?.toLowerCase().includes(q.toLowerCase()));el('memberTBody').innerHTML=f.map(memberRow).join('')}
+
+function showMemberForm(){
+  el('app').insertAdjacentHTML('beforeend',`
+  <div class="modal-bg" id="memberModal" onclick="if(event.target===this)this.remove()">
+    <div class="modal">
+      <div class="text-xl font-bold mb-4">Add Member</div>
+      <div class="space-y-3">
+        <div><label class="text-xs" style="color:var(--muted)">Name *</label><input id="mf_name"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Phone</label><input id="mf_phone"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Email</label><input id="mf_email"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Notes</label><textarea id="mf_notes" rows="2"></textarea></div>
+      </div>
+      <div class="text-xs mt-2" style="color:var(--muted)">Member ID and QR pass are auto-generated on creation.</div>
+      <div class="flex gap-3 mt-4">
+        <button class="btn btn-secondary flex-1" onclick="el('memberModal').remove()">Cancel</button>
+        <button class="btn btn-primary flex-1" onclick="submitMember()">Create Member</button>
+      </div>
+    </div>
+  </div>`);
+}
+
+async function submitMember(){
+  const data={gym_id:state.gymId,name:val('mf_name'),phone:val('mf_phone'),email:val('mf_email'),notes:val('mf_notes')};
+  if(!data.name){toast('Name required','error');return}
+  el('memberModal').remove();toast('Creating member...');
+  const res=await api('createMember',data);
+  if(res.success){toast('Member created with QR pass!');gymMembers(state.gymId)}else{toast(res.message||'Error','error')}
+}
+
+async function viewMember(id){
+  el('content').innerHTML='<div class="loading"></div> Loading member...';
+  const[mRes,aRes]=await Promise.all([api('listMembers',null,state.gymId),api('getMemberAttendance',{gym_id:state.gymId,member_id:window._allMembers?.find(m=>m.id===id)?.member_id})]);
+  const member=mRes.data?.find(m=>m.id===id);if(!member){toast('Not found','error');return}
+  const attendance=aRes.data||[];
+  el('content').innerHTML=`
+    <div class="flex items-center gap-4 mb-6">
+      <button class="btn btn-secondary btn-sm" onclick="gymNav('members')">← Back</button>
+      <div class="text-2xl font-bold">${member.name}</div>
+      ${badge(member.status)}
+    </div>
+    <div class="grid grid-cols-3 gap-4 mb-6">
+      <div class="card p-5">
+        <div class="text-sm font-bold mb-3">Member Info</div>
+        <div class="space-y-2 text-sm">
+          <div><span style="color:var(--muted)">ID:</span> <span class="font-mono">${member.member_id}</span></div>
+          <div><span style="color:var(--muted)">Phone:</span> ${member.phone||'-'}</div>
+          <div><span style="color:var(--muted)">Email:</span> ${member.email||'-'}</div>
+          <div><span style="color:var(--muted)">Joined:</span> ${member.joining_date||'-'}</div>
+          <div><span style="color:var(--muted)">Notes:</span> ${member.notes||'-'}</div>
+        </div>
+      </div>
+      <div class="card p-5 text-center">
+        <div class="text-sm font-bold mb-3">Digital QR Pass</div>
+        ${member.qr_active?`<img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${member.qr_token}" class="mx-auto rounded-xl bg-white p-2" style="width:180px;height:180px"><div class="badge badge-green mt-2">Active</div><div class="text-xs mt-2" style="color:var(--muted)">Generated: ${new Date(member.qr_generated_date).toLocaleDateString('en-GB')}</div>`:`<div class="badge badge-red">Revoked</div>`}
+        <div class="flex gap-2 mt-4 justify-center">
+          <button class="btn btn-secondary btn-sm" onclick="regenQR('${id}')">Regenerate</button>
+          <button class="btn btn-secondary btn-sm" onclick="revokeQR('${id}')">Revoke</button>
+        </div>
+      </div>
+      <div class="card p-5">
+        <div class="text-sm font-bold mb-3">Attendance</div>
+        <div class="stat-num mb-2">${attendance.length}</div>
+        <div class="stat-label">Total Check-ins</div>
+        <div class="mt-4 space-y-2 max-h-48 overflow-auto">
+          ${attendance.slice(0,10).map(a=>`<div class="flex justify-between text-sm"><span>${new Date(a.timestamp).toLocaleDateString('en-GB')}</span>${badge(a.result)}</div>`).join('')}
+          ${attendance.length===0?'<div style="color:var(--muted)">No check-ins yet</div>':''}
+        </div>
+      </div>
+    </div>`;
+}
+
+async function regenQR(id){toast('Regenerating QR...');const res=await api('regenerateQR',{gym_id:state.gymId},id);if(res.success){toast('QR regenerated!');viewMember(id)}else{toast('Error','error')}}
+async function revokeQR(id){toast('Revoking QR...');const res=await api('revokeQR',{gym_id:state.gymId},id);if(res.success){toast('QR revoked');viewMember(id)}else{toast('Error','error')}}
+
+async function gymMemberships(gid){
+  el('content').innerHTML='<div class="loading"></div> Loading...';
+  const[plansRes,memRes]=await Promise.all([api('listPlans',null,gid),api('listMemberships',null,gid)]);
+  const plans=plansRes.data||[];const mems=memRes.data||[];const members=window._allMembers||[];
+  el('content').innerHTML=`
+    <div class="text-2xl font-bold mb-6">Memberships</div>
+    <div class="grid grid-cols-2 gap-6">
+      <div>
+        <div class="flex justify-between items-center mb-4"><div class="text-lg font-bold">Plans</div><button class="btn btn-primary btn-sm" onclick="showPlanForm()">+ Add Plan</button></div>
+        <div class="card p-4">
+          ${plans.length===0?'<div class="text-center py-4" style="color:var(--muted)">No plans yet</div>':plans.map(p=>`<div class="card p-3 mb-2" style="background:rgba(255,255,255,.02)"><div class="flex justify-between"><div class="font-semibold">${p.name}</div><div class="font-bold">£${p.price}</div></div><div class="text-sm" style="color:var(--muted)">${p.duration_months} month(s) - ${p.description||''}</div>${p.active?'<span class="badge badge-green">Active</span>':'<span class="badge badge-gray">Inactive</span>'}</div>`).join('')}
+        </div>
+      </div>
+      <div>
+        <div class="flex justify-between items-center mb-4"><div class="text-lg font-bold">Active Memberships</div><button class="btn btn-primary btn-sm" onclick="showMemForm()">+ Assign</button></div>
+        <div class="card p-4">
+          ${mems.length===0?'<div class="text-center py-4" style="color:var(--muted)">No memberships assigned</div>':mems.map(m=>`<div class="card p-3 mb-2" style="background:rgba(255,255,255,.02)"><div class="flex justify-between"><div class="font-semibold">${m.member_id}</div>${badge(m.status)}</div><div class="text-sm" style="color:var(--muted)">${m.start_date} → ${m.expiry_date}</div></div>`).join('')}
+        </div>
+      </div>
+    </div>`;
+  window._plans=plans;
+}
+
+function showPlanForm(){
+  el('app').insertAdjacentHTML('beforeend',`
+  <div class="modal-bg" id="planModal" onclick="if(event.target===this)this.remove()">
+    <div class="modal">
+      <div class="text-xl font-bold mb-4">Add Membership Plan</div>
+      <div class="space-y-3">
+        <div><label class="text-xs" style="color:var(--muted)">Plan Name</label><input id="pf_name" placeholder="Monthly Premium"></div>
+        <div class="grid grid-cols-2 gap-3"><div><label class="text-xs" style="color:var(--muted)">Duration (months)</label><input id="pf_dur" type="number" value="1"></div><div><label class="text-xs" style="color:var(--muted)">Price (£)</label><input id="pf_price" type="number" value="45"></div></div>
+        <div><label class="text-xs" style="color:var(--muted)">Description</label><textarea id="pf_desc" rows="2"></textarea></div>
+      </div>
+      <div class="flex gap-3 mt-4"><button class="btn btn-secondary flex-1" onclick="el('planModal').remove()">Cancel</button><button class="btn btn-primary flex-1" onclick="submitPlan()">Add Plan</button></div>
+    </div>
+  </div>`);
+}
+
+async function submitPlan(){
+  const data={gym_id:state.gymId,name:val('pf_name'),duration_months:parseInt(val('pf_dur'))||1,price:parseFloat(val('pf_price'))||0,description:val('pf_desc')};
+  if(!data.name){toast('Name required','error');return}
+  el('planModal').remove();toast('Creating plan...');
+  const res=await api('createPlan',data);if(res.success){toast('Plan created!');gymMemberships(state.gymId)}else{toast('Error','error')}
+}
+
+function showMemForm(){
+  const members=window._allMembers||[];const plans=window._plans||[];
+  el('app').insertAdjacentHTML('beforeend',`
+  <div class="modal-bg" id="memModal" onclick="if(event.target===this)this.remove()">
+    <div class="modal">
+      <div class="text-xl font-bold mb-4">Assign Membership</div>
+      ${members.length===0||plans.length===0?'<div class="text-center py-4" style="color:var(--muted)">${members.length===0?'No members yet. Add members first.':'No plans yet. Create a plan first.'}</div>':`
+      <div class="space-y-3">
+        <div><label class="text-xs" style="color:var(--muted)">Member</label><select id="mf_mem">${members.map(m=>`<option value="${m.member_id}">${m.name} (${m.member_id})</option>`).join('')}</select></div>
+        <div><label class="text-xs" style="color:var(--muted)">Plan</label><select id="mf_plan">${plans.map(p=>`<option value="${p.id}">${p.name} - £${p.price}</option>`).join('')}</select></div>
+        <div class="grid grid-cols-2 gap-3"><div><label class="text-xs" style="color:var(--muted)">Start Date</label><input id="mf_start" type="date" value="${new Date().toISOString().split('T')[0]}"></div><div><label class="text-xs" style="color:var(--muted)">Expiry Date</label><input id="mf_exp" type="date" value="${new Date(Date.now()+30*86400000).toISOString().split('T')[0]}"></div></div>
+      </div>`}
+      <div class="flex gap-3 mt-4"><button class="btn btn-secondary flex-1" onclick="el('memModal').remove()">Cancel</button>${members.length>0&&plans.length>0?`<button class="btn btn-primary flex-1" onclick="submitMembership()">Assign</button>`:''}</div>
+    </div>
+  </div>`);
+}
+
+async function submitMembership(){
+  const data={gym_id:state.gymId,member_id:val('mf_mem'),plan_id:val('mf_plan'),start_date:val('mf_start'),expiry_date:val('mf_exp')};
+  el('memModal').remove();toast('Assigning membership...');
+  const res=await api('createMembership',data);if(res.success){toast('Membership assigned!');gymMemberships(state.gymId)}else{toast('Error','error')}
+}
+
+async function gymScanner(gid){
+  el('content').innerHTML=`
+    <div class="text-2xl font-bold mb-6">QR Scanner</div>
+    <div class="grid grid-cols-2 gap-6">
+      <div class="card p-6">
+        <div class="text-lg font-bold mb-4">Camera Scanner</div>
+        <div id="qr-reader" style="width:100%;border-radius:12px;overflow:hidden"></div>
+        <button class="btn btn-primary mt-4" onclick="startScanner()">Start Camera</button>
+        <button class="btn btn-secondary mt-4 ml-2" onclick="stopScanner()">Stop</button>
+      </div>
+      <div class="card p-6">
+        <div class="text-lg font-bold mb-4">Manual Entry</div>
+        <div class="space-y-3">
+          <div><label class="text-xs" style="color:var(--muted)">QR Token</label><input id="manualToken" placeholder="Paste QR token here..."></div>
+          <button class="btn btn-primary" onclick="manualScan()">Check In</button>
+        </div>
+        <div id="scanResult" class="mt-6"></div>
+      </div>
+    </div>
+    <div class="card p-6 mt-6">
+      <div class="text-lg font-bold mb-4">Today's Check-ins</div>
+      <div id="todayCheckins"><div class="text-center py-4" style="color:var(--muted)">Loading...</div></div>
+    </div>`;
+  loadTodayCheckins(gid);
+}
+
+let qrScanner=null;
+function startScanner(){
+  if(qrScanner)stopScanner();
+  qrScanner=new Html5Qrcode('qr-reader');
+  qrScanner.start({facingMode:'environment'},{fps:10,qrbox:{width:250,height:250}},async(decodedText)=>{
+    stopScanner();
+    await processScan(decodedText);
+  },(err)=>{}).catch(err=>toast('Camera error: '+err,'error'));
+}
+function stopScanner(){if(qrScanner){qrScanner.stop().then(()=>{qrScanner=null}).catch(()=>{qrScanner=null})}}
+
+async function manualScan(){
+  const token=val('manualToken');if(!token){toast('Enter a token','error');return}
+  await processScan(token);
+}
+
+async function processScan(token){
+  el('scanResult').innerHTML='<div class="loading"></div> Scanning...';
+  const res=await api('scanQR',{gym_id:state.gymId,token,scanner_source:'Web Scanner'});
+  const r=res.data||res;
+  if(res.success){
+    const color=r.result==='ACTIVE'?'var(--green)':r.result==='EXPIRING SOON'?'var(--yellow)':r.result==='EXPIRED'?'var(--red)':'var(--blue)';
+    el('scanResult').innerHTML=`<div class="card p-6 text-center" style="border-color:${color}"><div class="text-6xl mb-4">${r.result==='ACTIVE'?'✅':r.result==='EXPIRING SOON'?'⚠️':r.result==='EXPIRED'?'🚫':'ℹ️'}</div><div class="text-2xl font-bold mb-2" style="color:${color}">${r.result}</div><div class="text-lg">${r.message||'Checked in'}</div>${r.member?`<div class="mt-4 text-sm" style="color:var(--muted)">${r.member.name} - ${r.member.member_id}</div>`:''}</div>`;
+    toast(r.message||'Checked in');
+  }else{
+    const color=r.result==='INVALID'?'var(--red)':r.result==='DUPLICATE'?'var(--yellow)':'var(--red)';
+    el('scanResult').innerHTML=`<div class="card p-6 text-center" style="border-color:${color}"><div class="text-6xl mb-4">${r.result==='INVALID'?'🚫':'⚠️'}</div><div class="text-xl font-bold" style="color:${color}">${r.result||'Error'}</div><div class="text-lg mt-2">${r.message||'Scan failed'}</div></div>`;
+    toast(r.message||'Error','error');
+  }
+  loadTodayCheckins(state.gymId);
+}
+
+async function loadTodayCheckins(gid){
+  const res=await api('getAttendance',null,gid);
+  const today=new Date().toISOString().split('T')[0];
+  const todayAtt=(res.data||[]).filter(a=>a.timestamp?.startsWith(today));
+  el('todayCheckins').innerHTML=todayAtt.length>0?`<table><thead><tr><th>Member</th><th>Time</th><th>Result</th><th>Source</th></tr></thead><tbody>${todayAtt.map(a=>`<tr><td>${a.member_name||'Unknown'}</td><td class="text-sm">${new Date(a.timestamp).toLocaleTimeString('en-GB')}</td><td>${badge(a.result)}</td><td class="text-sm">${a.scanner_source||'-'}</td></tr>`).join('')}</tbody></table>`:'<div class="text-center py-4" style="color:var(--muted)">No check-ins today</div>';
+}
+
+async function gymAttendance(gid){
+  el('content').innerHTML='<div class="loading"></div> Loading...';
+  const res=await api('getAttendance',null,gid);
+  const att=res.data||[];
+  const today=att.filter(a=>a.timestamp?.startsWith(new Date().toISOString().split('T')[0]));
+  el('content').innerHTML=`
+    <div class="text-2xl font-bold mb-6">Attendance</div>
+    <div class="grid grid-cols-3 gap-4 mb-6">
+      <div class="card stat-card"><div class="stat-label">Today</div><div class="stat-num" style="color:var(--accent)">${today.length}</div></div>
+      <div class="card stat-card"><div class="stat-label">Total</div><div class="stat-num">${att.length}</div></div>
+      <div class="card stat-card"><div class="stat-label">Active Entries</div><div class="stat-num" style="color:var(--green)">${att.filter(a=>a.result==='ACTIVE').length}</div></div>
+    </div>
+    <div class="card overflow-hidden">
+      <table><thead><tr><th>Member</th><th>Date/Time</th><th>Result</th><th>Scanner Source</th></tr></thead>
+      <tbody>${att.slice(0,50).map(a=>`<tr><td>${a.member_name||'Unknown'}</td><td class="text-sm">${new Date(a.timestamp).toLocaleString('en-GB')}</td><td>${badge(a.result)}</td><td class="text-sm">${a.scanner_source||'-'}</td></tr>`).join('')}</tbody></table>
+      ${att.length===0?'<div class="text-center py-8" style="color:var(--muted)">No attendance records yet</div>':''}
+    </div>`;
+}
+
+async function gymLeads(gid){
+  el('content').innerHTML='<div class="loading"></div> Loading...';
+  const res=await api('listGymLeads',null,gid);
+  const leads=res.data||[];
+  el('content').innerHTML=`
+    <div class="flex justify-between items-center mb-6"><div class="text-2xl font-bold">Leads & Trials</div><button class="btn btn-primary" onclick="showGymLeadForm()">+ Add Lead</button></div>
+    <div class="card overflow-hidden">
+      <table><thead><tr><th>Name</th><th>Phone</th><th>Fitness Goal</th><th>Source</th><th>Status</th><th>Update</th></tr></thead>
+      <tbody>${leads.map(l=>`<tr><td class="font-semibold">${l.name}</td><td>${l.phone||'-'}</td><td class="text-sm">${l.fitness_goal||'-'}</td><td class="text-sm">${l.source||'-'}</td><td>${badge(l.status)}</td><td><select onchange="updateGymLead('${l.id}',this.value)" class="!w-auto !py-1 text-xs"><option ${l.status==='NEW'?'selected':''}>NEW</option><option ${l.status==='CONTACTED'?'selected':''}>CONTACTED</option><option ${l.status==='TRIAL BOOKED'?'selected':''}>TRIAL BOOKED</option><option ${l.status==='TRIAL COMPLETED'?'selected':''}>TRIAL COMPLETED</option><option ${l.status==='CONVERTED'?'selected':''}>CONVERTED</option><option ${l.status==='LOST'?'selected':''}>LOST</option><option ${l.status==='FOLLOW-UP'?'selected':''}>FOLLOW-UP</option></select></td></tr>`).join('')}</tbody></table>
+      ${leads.length===0?'<div class="text-center py-8" style="color:var(--muted)">No leads yet</div>':''}
+    </div>`;
+}
+
+function showGymLeadForm(){
+  el('app').insertAdjacentHTML('beforeend',`
+  <div class="modal-bg" id="glModal" onclick="if(event.target===this)this.remove()">
+    <div class="modal">
+      <div class="text-xl font-bold mb-4">Add Lead</div>
+      <div class="space-y-3">
+        <div><label class="text-xs" style="color:var(--muted)">Name *</label><input id="gl_name"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Phone *</label><input id="gl_phone"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Email</label><input id="gl_email"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Fitness Goal</label><input id="gl_goal" placeholder="Weight loss, muscle gain..."></div>
+        <div><label class="text-xs" style="color:var(--muted)">Preferred Schedule</label><input id="gl_sched" placeholder="Weekday evenings"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Source</label><select id="gl_source"><option>Website form</option><option>Walk-in</option><option>Phone inquiry</option><option>Referral</option><option>Social media</option><option>Other</option></select></div>
+      </div>
+      <div class="flex gap-3 mt-4"><button class="btn btn-secondary flex-1" onclick="el('glModal').remove()">Cancel</button><button class="btn btn-primary flex-1" onclick="submitGymLead()">Add Lead</button></div>
+    </div>
+  </div>`);
+}
+
+async function submitGymLead(){
+  const data={gym_id:state.gymId,name:val('gl_name'),phone:val('gl_phone'),email:val('gl_email'),fitness_goal:val('gl_goal'),preferred_schedule:val('gl_sched'),source:val('gl_source'),status:'NEW'};
+  if(!data.name||!data.phone){toast('Name and phone required','error');return}
+  el('glModal').remove();toast('Adding lead...');
+  const res=await api('createGymLead',data);if(res.success){toast('Lead added!');gymLeads(state.gymId)}else{toast('Error','error')}
+}
+
+async function updateGymLead(id,status){await api('updateGymLead',{status},id);toast('Status updated');gymLeads(state.gymId)}
+
+async function gymStaff(gid){
+  el('content').innerHTML='<div class="loading"></div> Loading...';
+  const res=await api('listStaff',null,gid);
+  const staff=res.data||[];
+  el('content').innerHTML=`
+    <div class="flex justify-between items-center mb-6"><div class="text-2xl font-bold">Staff</div><button class="btn btn-primary" onclick="showStaffForm()">+ Add Staff</button></div>
+    <div class="card overflow-hidden">
+      <table><thead><tr><th>Name</th><th>Role</th><th>Email</th><th>Phone</th></tr></thead>
+      <tbody>${staff.map(s=>`<tr><td class="font-semibold">${s.name}</td><td><span class="badge badge-blue">${s.role}</span></td><td>${s.email||'-'}</td><td>${s.phone||'-'}</td></tr>`).join('')}</tbody></table>
+      ${staff.length===0?'<div class="text-center py-8" style="color:var(--muted)">No staff yet</div>':''}
+    </div>`;
+}
+
+function showStaffForm(){
+  el('app').insertAdjacentHTML('beforeend',`
+  <div class="modal-bg" id="stModal" onclick="if(event.target===this)this.remove()">
+    <div class="modal">
+      <div class="text-xl font-bold mb-4">Add Staff Member</div>
+      <div class="space-y-3">
+        <div><label class="text-xs" style="color:var(--muted)">Name</label><input id="st_name"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Role</label><select id="st_role"><option>GYM OWNER</option><option>GYM MANAGER</option><option>RECEPTION STAFF</option><option>TRAINER</option><option>AGENCY ADMIN</option></select></div>
+        <div><label class="text-xs" style="color:var(--muted)">Email</label><input id="st_email"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Phone</label><input id="st_phone"></div>
+      </div>
+      <div class="flex gap-3 mt-4"><button class="btn btn-secondary flex-1" onclick="el('stModal').remove()">Cancel</button><button class="btn btn-primary flex-1" onclick="submitStaff()">Add Staff</button></div>
+    </div>
+  </div>`);
+}
+
+async function submitStaff(){
+  const data={gym_id:state.gymId,name:val('st_name'),role:val('st_role'),email:val('st_email'),phone:val('st_phone')};
+  if(!data.name){toast('Name required','error');return}
+  el('stModal').remove();toast('Adding staff...');
+  const res=await api('createStaff',data);if(res.success){toast('Staff added!');gymStaff(state.gymId)}else{toast('Error','error')}
+}
+
+async function gymAudit(gid){
+  el('content').innerHTML='<div class="loading"></div> Loading...';
+  const res=await api('getAuditLog',null,gid);
+  const logs=res.data||[];
+  const colors={MEMBER_CREATED:'var(--green)',MEMBERSHIP_CREATED:'var(--blue)',QR_REGENERATED:'var(--yellow)',QR_REVOKED:'var(--red)',ATTENDANCE_RECORDED:'var(--accent)',CLIENT_CONVERTED:'var(--green)',STAFF_CREATED:'var(--blue)',LEAD_CREATED:'var(--blue)'};
+  el('content').innerHTML=`
+    <div class="text-2xl font-bold mb-6">Audit Log</div>
+    <div class="card p-4">
+      ${logs.length===0?'<div class="text-center py-8" style="color:var(--muted)">No audit entries yet</div>':logs.map(l=>`<div class="flex gap-3 py-3 border-b" style="border-color:var(--border)"><div class="w-2 h-2 rounded-full mt-2" style="background:${colors[l.action]||'var(--muted)'}"></div><div class="flex-1"><div class="flex justify-between"><div class="font-semibold text-sm">${l.action}</div><div class="text-xs" style="color:var(--muted)">${new Date(l.timestamp).toLocaleString('en-GB')}</div></div><div class="text-sm" style="color:var(--muted)">${l.details||''} ${l.actor?'· by '+l.actor:''}</div></div></div>`).join('')}
+    </div>`;
+}
+
+async function gymSettings(gid){
+  el('content').innerHTML='<div class="loading"></div> Loading...';
+  const res=await api('getTenant',null,gid);
+  const t=res.data||{};
+  el('content').innerHTML=`
+    <div class="text-2xl font-bold mb-6">Settings</div>
+    <div class="card p-6 max-w-2xl">
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="text-xs" style="color:var(--muted)">Gym Name</label><input id="set_name" value="${t.gym_name||''}"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Phone</label><input id="set_phone" value="${t.phone||''}"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Email</label><input id="set_email" value="${t.email||''}"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Logo URL</label><input id="set_logo" value="${t.logo||''}"></div>
+        <div class="col-span-2"><label class="text-xs" style="color:var(--muted)">Address</label><input id="set_addr" value="${t.address||''}"></div>
+        <div class="col-span-2"><label class="text-xs" style="color:var(--muted)">Opening Hours</label><input id="set_hours" value="${t.opening_hours||''}"></div>
+        <div class="col-span-2"><label class="text-xs" style="color:var(--muted)">Social Links</label><input id="set_social" value="${t.social_links||''}"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Primary Color</label><input id="set_pc" type="color" value="${t.primary_color||'#DC2626'}" class="!h-10"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Secondary Color</label><input id="set_sc" type="color" value="${t.secondary_color||'#0A0A0C'}" class="!h-10"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Accent Color</label><input id="set_ac" type="color" value="${t.accent_color||'#F59E0B'}" class="!h-10"></div>
+        <div><label class="text-xs" style="color:var(--muted)">Expiry Warning (days)</label><input id="set_ew" type="number" value="${t.expiry_warning_days||14}"></div>
+      </div>
+      <button class="btn btn-primary mt-4" onclick="saveSettings('${gid}')">Save Settings</button>
+    </div>`;
+}
+
+async function saveSettings(gid){
+  const data={gym_name:val('set_name'),phone:val('set_phone'),email:val('set_email'),logo:val('set_logo'),address:val('set_addr'),opening_hours:val('set_hours'),social_links:val('set_social'),primary_color:val('set_pc'),secondary_color:val('set_sc'),accent_color:val('set_ac'),expiry_warning_days:parseInt(val('set_ew'))||14};
+  toast('Saving...');
+  const res=await api('updateTenant',data,gid);
+  if(res.success){toast('Settings saved!');state.gymName=data.gym_name;state.gymColors={primary:data.primary_color,secondary:data.secondary_color,accent:data.accent_color};saveState();render()}else{toast('Error','error')}
+}
+
+// === MEMBER PORTAL ===
+function renderMemberPortal(){
+  if(!state.memberToken){
+    el('app').innerHTML=`
+    <div class="min-h-screen flex items-center justify-center p-6">
+      <div class="card p-8 max-w-md w-full">
+        <div class="text-3xl font-black mb-2 text-center" style="color:var(--accent)">GYM OS</div>
+        <div class="text-sm text-center mb-6" style="color:var(--muted)">Member Portal</div>
+        <div class="space-y-3">
+          <div><label class="text-xs" style="color:var(--muted)">Enter your QR token or Member ID</label><input id="portalToken" placeholder="Paste your QR token here..."></div>
+          <button class="btn btn-primary w-full" onclick="memberLogin()">Access Portal</button>
+          <button class="btn btn-secondary w-full" onclick="state.role=null;saveState();render()">← Back</button>
+        </div>
+      </div>
+    </div>`;
+    return;
+  }
+  loadMemberPortal();
+}
+
+async function memberLogin(){
+  const token=val('portalToken');if(!token){toast('Enter your token','error');return}
+  state.memberToken=token;saveState();loadMemberPortal();
+}
+
+async function loadMemberPortal(){
+  el('app').innerHTML='<div class="min-h-screen flex items-center justify-center"><div class="loading"></div></div>';
+  const res=await api('getMemberByToken',{token:state.memberToken});
+  if(!res.success){
+    toast('Member not found','error');state.memberToken=null;saveState();renderMemberPortal();return;
+  }
+  const{member,memberships,attendance,tenant}=res.data;
+  const pc=tenant?.primary_color||'#DC2626';
+  document.documentElement.style.setProperty('--accent',pc);
+  const latestMem=memberships[memberships.length-1];
+  const daysLeft=latestMem?Math.ceil((new Date(latestMem.expiry_date)-new Date())/86400000):null;
+  el('app').innerHTML=`
+  <div class="min-h-screen p-6 max-w-4xl mx-auto">
+    <div class="flex justify-between items-center mb-6">
+      <div class="text-2xl font-black" style="color:${pc}">${tenant?.gym_name||'GYM OS'}</div>
+      <button class="btn btn-secondary btn-sm" onclick="state.memberToken=null;saveState();render()">Logout</button>
+    </div>
+    <div class="grid grid-cols-3 gap-4 mb-6">
+      <div class="card p-5"><div class="text-sm font-bold mb-2">Profile</div><div class="text-sm space-y-1"><div class="font-semibold text-lg">${member.name}</div><div><span style="color:var(--muted)">ID:</span> <span class="font-mono">${member.member_id}</span></div><div><span style="color:var(--muted)">Status:</span> ${badge(member.status)}</div><div><span style="color:var(--muted)">Joined:</span> ${member.joining_date}</div><div><span style="color:var(--muted)">Phone:</span> ${member.phone||'-'}</div></div></div>
+      <div class="card p-5 text-center">
+        <div class="text-sm font-bold mb-3">Digital QR Pass</div>
+        ${member.qr_active?`<img src="https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${member.qr_token}" class="mx-auto rounded-xl bg-white p-2" style="width:160px;height:160px"><div class="mt-2">${badge('ACTIVE')}</div>`:`<div class="badge badge-red">Revoked</div>`}
+        <div class="text-xs mt-2" style="color:var(--muted)">Show at gym entrance</div>
+      </div>
+      <div class="card p-5"><div class="text-sm font-bold mb-2">Membership</div>
+        ${latestMem?`<div class="space-y-1 text-sm"><div><span style="color:var(--muted)">Plan ID:</span> ${latestMem.plan_id?.slice(-8)}</div><div><span style="color:var(--muted)">Start:</span> ${latestMem.start_date}</div><div><span style="color:var(--muted)">Expiry:</span> ${latestMem.expiry_date}</div><div><span style="color:var(--muted)">Days left:</span> <span class="font-bold" style="color:${daysLeft<0?'var(--red)':daysLeft<14?'var(--yellow)':'var(--green)'}">${daysLeft}</span></div><div>${badge(latestMem.status)}</div></div>`:'<div style="color:var(--muted)">No active membership</div>'}
+      </div>
+    </div>
+    <div class="card p-6">
+      <div class="flex justify-between items-center mb-4"><div class="text-lg font-bold">Attendance History</div><div class="flex gap-4 text-sm"><div><span style="color:var(--muted)">Total:</span> <span class="font-bold">${attendance.length}</span></div></div></div>
+      ${attendance.length>0?`<table><thead><tr><th>Date</th><th>Time</th><th>Result</th></tr></thead><tbody>${attendance.slice(0,20).map(a=>`<tr><td>${new Date(a.timestamp).toLocaleDateString('en-GB')}</td><td class="text-sm">${new Date(a.timestamp).toLocaleTimeString('en-GB')}</td><td>${badge(a.result)}</td></tr>`).join('')}</tbody></table>`:'<div class="text-center py-4" style="color:var(--muted)">No check-ins yet</div>'}
+    </div>
+  </div>`;
+}
+
+function logout(){state.role=null;state.gymId=null;state.memberToken=null;saveState();render()}
+
+// Init
+render();
+</script>
+</body>
+</html>
