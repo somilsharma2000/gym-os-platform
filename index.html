@@ -144,6 +144,12 @@
                 <span>Oxigen Concept Demo</span>
                 <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Connected"></span>
             </div>
+            <div class="px-4 pb-2 space-y-1">
+                <a href="https://somilsharma2000.github.io/beyond-pixells/privacy-policy.html" class="block text-[10px] text-brand-muted hover:text-white transition-colors">Privacy Policy</a>
+                <a href="https://somilsharma2000.github.io/beyond-pixells/terms-of-service.html" class="block text-[10px] text-brand-muted hover:text-white transition-colors">Terms of Service</a>
+                <a href="https://somilsharma2000.github.io/beyond-pixells/refund-policy.html" class="block text-[10px] text-brand-muted hover:text-white transition-colors">Refund Policy</a>
+                <a href="https://somilsharma2000.github.io/beyond-pixells/" class="block text-[10px] text-brand-muted hover:text-white transition-colors">Powered by Beyond Pixells</a>
+            </div>
         </aside>
 
         <!-- Sidebar Backdrop for Mobile -->
@@ -973,6 +979,10 @@
                             <input type="text" id="trial_owner" value="Front Desk" class="w-full bg-brand-bg border border-custom rounded-xl px-3 py-2 text-xs text-white">
                         </div>
                     </div>
+                    <label class="flex items-start space-x-2 cursor-pointer">
+                        <input type="checkbox" id="trial_whatsapp_optin" checked class="mt-0.5 w-4 h-4 rounded border-custom bg-brand-bg text-[#0066FF] focus:ring-[#0066FF] focus:ring-offset-0">
+                        <span class="text-[11px] text-brand-muted">I agree to receive trial booking confirmation and follow-up via WhatsApp</span>
+                    </label>
                     <div class="pt-4 flex justify-end space-x-3">
                         <button type="button" onclick="closeModal()" class="px-4 py-2 bg-brand-bg text-brand-muted hover:text-white rounded-xl text-xs font-semibold">Cancel</button>
                         <button type="submit" class="px-4 py-2 bg-[#0066FF] hover:bg-blue-600 text-white rounded-xl text-xs font-semibold">Create Trial Pass</button>
@@ -983,13 +993,15 @@
 
         async function handleBookTrial(e) {
             e.preventDefault();
+            const whatsappConsent = document.getElementById('trial_whatsapp_optin')?.checked || false;
             const data = {
                 gym_id: state.gym_id,
                 lead_name: document.getElementById('trial_lead_name').value,
                 phone: document.getElementById('trial_phone').value,
                 email: document.getElementById('trial_email').value,
                 trial_date: document.getElementById('trial_date').value,
-                follow_up_owner: document.getElementById('trial_owner').value
+                follow_up_owner: document.getElementById('trial_owner').value,
+                whatsapp_optin: whatsappConsent
             };
             const res = await api('createTrial', data);
             if (res.success) {
@@ -1284,6 +1296,10 @@
                             <input type="email" id="m_email" class="w-full bg-brand-bg border border-custom rounded-xl px-3 py-2 text-xs text-white" placeholder="alex@example.com">
                         </div>
                     </div>
+                    <label class="flex items-start space-x-2 cursor-pointer">
+                        <input type="checkbox" id="new_member_whatsapp_optin" checked class="mt-0.5 w-4 h-4 rounded border-custom bg-brand-bg text-[#0066FF] focus:ring-[#0066FF] focus:ring-offset-0">
+                        <span class="text-[11px] text-brand-muted">Member consents to receive WhatsApp updates (welcome, reminders, birthday wishes)</span>
+                    </label>
                     <div class="pt-4 flex justify-end space-x-3">
                         <button type="button" onclick="closeModal()" class="px-4 py-2 bg-brand-bg text-brand-muted hover:text-white rounded-xl text-xs font-semibold">Cancel</button>
                         <button type="submit" class="px-4 py-2 bg-[#0066FF] hover:bg-blue-600 text-white rounded-xl text-xs font-semibold">Create Member</button>
@@ -1294,12 +1310,14 @@
 
         async function handleCreateMember(e) {
             e.preventDefault();
+            const whatsappConsent = document.getElementById('new_member_whatsapp_optin')?.checked || false;
             const data = {
                 gym_id: state.gym_id,
                 name: document.getElementById('m_name').value,
                 phone: document.getElementById('m_phone').value,
                 email: document.getElementById('m_email').value,
-                status: 'ACTIVE'
+                status: 'ACTIVE',
+                whatsapp_optin: whatsappConsent
             };
             const res = await api('createMember', data);
             if (res.success) {
